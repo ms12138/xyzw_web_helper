@@ -1,52 +1,47 @@
 name: 自动构建前端dist文件夹
-# 触发条件：推代码到main分支、打Tag时自动执行；也支持手动触发
 on:
   push:
-    branches: [ main ]          # 推main分支触发
-    tags: [ 'v*' ]              # 打v开头的Tag触发（修正：缩进到push子级）
-  workflow_dispatch:            # 手动触发（独立层级）
+    branches: [ main ]          
+    tags: [ 'v*' ]              
+  workflow_dispatch:            
 
 jobs:
   build-dist:
-    runs-on: ubuntu-latest      # 使用GitHub的Ubuntu服务器构建
+    runs-on: ubuntu-latest      
     steps:
-      # 1. 检出仓库代码到构建服务器
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 2. 配置Node.js环境（匹配Vue项目依赖的版本）
       - name: 设置Node.js版本
         uses: actions/setup-node@v4
         with:
-          node-version: '18'     # 按需调整（Vue2常用16，Vue3常用18/20）
-          cache: 'npm'           # 缓存npm依赖，加速后续构建
+          node-version: '18'     
+          cache: 'npm'           
 
-      # 3. 进入Vue项目目录，安装依赖并打包生成dist
+      # 关键修正：去掉working-directory，或改为仓库根目录（.）
       - name: 安装依赖 & 打包前端
-        working-directory: ./xyzw_web_helper  # 你的Vue项目根目录（确认路径正确）
+        # working-directory: .  # 可选，默认就是仓库根目录，可省略
         run: |
-          # 国内环境可加镜像源加速：npm install --registry=https://registry.npmmirror.com
-          npm install
-          npm run build  # 执行package.json里的build脚本
+          npm install --registry=https://registry.npmmirror.com  # 国内镜像加速
+          npm run build  
 
-      # 4. 上传dist文件夹到GitHub Actions产物，方便下载
+      # 关键修正：dist路径改为仓库根目录下的dist
       - name: 上传dist文件夹
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-dist  # 产物名称（下载时显示）
-          path: ./xyzw_web_helper/dist  # dist文件夹路径（匹配项目结构）
+          name: frontend-dist
+          path: ./dist  # 直接指向仓库根目录的dist
 
-      # 【可选】打Tag时，把dist包上传到GitHub Release
+      # 【可选】打Tag上传Release的修正
       - name: 打包dist为ZIP并上传到Release
-        if: startsWith(github.ref, 'refs/tags/')  # 仅打Tag时执行
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          cd ./xyzw_web_helper
-          zip -r ../xyzw-web-helper-dist-${{ github.ref_name }}.zip dist/
+          zip -r ./xyzw-web-helper-dist-${{ github.ref_name }}.zip dist/  # 路径简化
       - name: 创建GitHub Release并上传ZIP包
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: xyzw-web-helper-dist-${{ github.ref_name }}.zip
+          files: ./xyzw-web-helper-dist-${{ github.ref_name }}.zip
           body: |
             自动构建的前端dist包（${{ github.ref_name }}版本）
             - 解压后可直接部署到Nginx/Apache等静态服务器
