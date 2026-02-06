@@ -1,5 +1,12 @@
 import axios from "axios";
+import { MD5, lib, enc } from "crypto-js";
 import { g_utils } from "@/utils/bonProtocol";
+
+export const getTokenId = (token: string | ArrayBuffer | Uint8Array) => {
+  const binHash = MD5(lib.WordArray.create(token)).toString(enc.Hex)
+  return binHash;
+}
+
 export const transformToken = async (arrayBuffer: ArrayBuffer) => {
   // 如果是data URL格式，提取base64部分
   const res = await axios.post(
@@ -16,13 +23,13 @@ export const transformToken = async (arrayBuffer: ArrayBuffer) => {
       responseType: "arraybuffer",
     },
   );
-  console.log("转换Token:", typeof res.data);
+  // console.log("转换Token:", typeof res.data);
 
   const msg = g_utils.parse(res.data);
-  console.log("解析结果:", msg);
+  // console.log("解析结果:", msg);
 
   const data = msg.getData();
-  console.log("数据内容:", data);
+  // console.log("数据内容:", data);
 
   const currentTime = Date.now();
   const sessId = currentTime * 100 + Math.floor(Math.random() * 100);

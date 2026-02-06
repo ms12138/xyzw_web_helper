@@ -75,3 +75,4 @@ temp/
 *.bat
 *.exe
 node_modules/
+dist.zip
