@@ -10,8 +10,9 @@ import useIndexedDB from "@/hooks/useIndexedDB";
 import { generateRandomSeed } from "@/utils/randomSeed";
 import { transformToken } from "@/utils/token";
 import { emitPlus } from "./events/index.js";
+import router from "@/router";
 
-const { getArrayBuffer } = useIndexedDB();
+const { getArrayBuffer, storeArrayBuffer, deleteArrayBuffer } = useIndexedDB();
 
 declare interface TokenData {
   id: string;
@@ -22,6 +23,7 @@ declare interface TokenData {
   remark?: string; // 备注信息
   importMethod?: "manual" | "bin" | "url" | "wxQrcode"; // 导入方式：manual（手动）、bin文件或url链接
   sourceUrl?: string; // 当importMethod为url时，存储url链接
+  avatar?: string; // 用户头像URL
   upgradedToPermanent?: boolean; // 是否升级为长期有效
   upgradedAt?: string; // 升级时间
   updatedAt?: string; // 更新时间
@@ -201,6 +203,7 @@ export const useTokenStore = defineStore("tokens", () => {
       // URL获取相关信息
       sourceUrl: tokenData.sourceUrl || null, // Token来源URL（用于刷新）
       importMethod: tokenData.importMethod || "manual", // 导入方式：manual 或 url
+      avatar: tokenData.avatar || "", // 用户头像
     };
 
     gameTokens.value.push(newToken);
@@ -323,6 +326,7 @@ export const useTokenStore = defineStore("tokens", () => {
 
           const gameToken = gameTokens.value.find((t) => t.id === tokenId);
           console.log(gameToken);
+          let refreshSuccess = false;
           if (gameToken) {
             if (gameToken.importMethod === "url" && gameToken.sourceUrl) {
               // URL形式token刷新
@@ -334,6 +338,7 @@ export const useTokenStore = defineStore("tokens", () => {
                     // 直接使用返回的token，无需transformToken
                     updateToken(tokenId, { ...gameToken, token: data.token });
                     console.log("从URL获取token成功:", gameToken.name);
+                    refreshSuccess = true;
                   }
                 }
               } catch (error) {
@@ -343,19 +348,49 @@ export const useTokenStore = defineStore("tokens", () => {
               gameToken.importMethod === "bin" ||
               gameToken.importMethod === "wxQrcode"
             ) {
-              // Bin形式token刷新（原有逻辑）
-              const userToken: ArrayBuffer | null = await getArrayBuffer(
-                gameToken.name,
+              // Bin形式token刷新（兼容新旧两种key格式）
+              // 优先使用新的tokenId作为key，如果失败则尝试旧的name作为key
+              let userToken: ArrayBuffer | null = await getArrayBuffer(
+                tokenId,
               );
-              console.log("读取到的ArrayBuffer:", gameToken.name, userToken);
+              let usedOldKey = false;
+              if (!userToken) {
+                userToken = await getArrayBuffer(
+                  gameToken.name,
+                );
+                usedOldKey = true;
+              }
+              console.log("读取到的ArrayBuffer:", tokenId, userToken);
               if (userToken) {
                 const token = await transformToken(userToken);
                 updateToken(tokenId, { ...gameToken, token });
+                // 如果使用旧的name key读取成功，则用新的tokenId key重新保存并删除旧数据
+                if (usedOldKey) {
+                  await storeArrayBuffer(tokenId, userToken);
+                  await deleteArrayBuffer(gameToken.name);
+                  console.log("已迁移IndexedDB数据:", gameToken.name, "->", tokenId);
+                }
                 console.log(gameToken);
+                refreshSuccess = true;
               }
             }
           }
-          wsLogger.error(`Token 已过期，需要重新导入 [${tokenId}]`);
+          if (refreshSuccess) {
+            wsLogger.info(`Token刷新成功，自动重新连接 [${tokenId}]`);
+            // 只在tokens或admin/game-features页面自动重连
+            const currentPath = router.currentRoute.value.path;
+            const shouldAutoReconnect = 
+              currentPath === '/tokens' || 
+              currentPath === '/admin/game-features';
+            
+            if (shouldAutoReconnect) {
+              selectToken(tokenId, true);
+            } else {
+              wsLogger.info(`当前页面不自动重连: ${currentPath}`);
+            }
+          } else {
+            wsLogger.error(`Token 已过期，需要重新导入 [${tokenId}]`);
+          }
         }
         return;
       }
@@ -365,6 +400,15 @@ export const useTokenStore = defineStore("tokens", () => {
 
       if (cmd === "role_getroleinforesp") {
         syncRandomSeedFromStatistics(tokenId, body, client);
+        
+        // 更新头像
+        if (body?.role?.headImg) {
+          const token = gameTokens.value.find(t => t.id === tokenId);
+          if (token && token.avatar !== body.role.headImg) {
+            updateToken(tokenId, { avatar: body.role.headImg });
+            wsLogger.debug(`更新头像 [${tokenId}]: ${body.role.headImg}`);
+          }
+        }
       }
 
       emitPlus(cmd, {
