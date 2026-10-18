@@ -1,49 +1,48 @@
 name: 自动构建前端dist文件夹
+
 on:
   push:
-    branches: [ main ]          
-    tags: [ 'v*' ]              
-  workflow_dispatch:            
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
 
 jobs:
   build-dist:
-    runs-on: ubuntu-latest      
+    runs-on: ubuntu-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置Node.js版本
+      - name: 设置 Node.js 版本
         uses: actions/setup-node@v4
         with:
-          node-version: '18'     
-          cache: 'npm'           
+          node-version: '18'
 
-      # 关键修正：去掉working-directory，或改为仓库根目录（.）
+      - name: 配置 npm 镜像
+        run: npm config set registry https://registry.npmmirror.com
+
       - name: 安装依赖 & 打包前端
-        # working-directory: .  # 可选，默认就是仓库根目录，可省略
         run: |
-          npm install --registry=https://registry.npmmirror.com  # 国内镜像加速
-          npm run build  
+          npm install
+          npm run build
 
-      # 关键修正：dist路径改为仓库根目录下的dist
-      - name: 上传dist文件夹
+      - name: 上传 dist 文件夹
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: ./dist  # 直接指向仓库根目录的dist
+          path: dist/
 
-      # 【可选】打Tag上传Release的修正
-      - name: 打包dist为ZIP并上传到Release
+      - name: 打包 dist 为 ZIP
         if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          zip -r ./xyzw-web-helper-dist-${{ github.ref_name }}.zip dist/  # 路径简化
-      - name: 创建GitHub Release并上传ZIP包
+        run: zip -r xyzw-web-helper-dist-${{ github.ref_name }}.zip dist/
+
+      - name: 创建 GitHub Release 并上传 ZIP
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ./xyzw-web-helper-dist-${{ github.ref_name }}.zip
+          files: xyzw-web-helper-dist-${{ github.ref_name }}.zip
           body: |
-            自动构建的前端dist包（${{ github.ref_name }}版本）
-            - 解压后可直接部署到Nginx/Apache等静态服务器
+            自动构建的前端 dist 包（${{ github.ref_name }} 版本）
+            - 解压后可直接部署到 Nginx / Apache 等静态服务器
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
